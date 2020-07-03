@@ -1,10 +1,25 @@
-import { AbstractIterable, IterationItem, OpaqueIterator, OpaqueIterationItem } from './iterable';
 import { Tag } from '@glimmer/validator';
 import { Option, Dict } from '@glimmer/interfaces';
-import { EMPTY_ARRAY, isObject, debugToString } from '@glimmer/util';
+import { EMPTY_ARRAY, isObject, debugToString, expect } from '@glimmer/util';
 import { DEBUG } from '@glimmer/env';
 import { IterationItemReference, TemplateReferenceEnvironment } from './template';
 import { VersionedPathReference } from './reference';
+
+export interface IterationItem<T, U> {
+  key: unknown;
+  value: T;
+  memo: U;
+}
+
+export interface AbstractIterator<T, U, V extends IterationItem<T, U>> {
+  isEmpty(): boolean;
+  next(): Option<V>;
+}
+
+export type Iterator<T, U> = AbstractIterator<T, U, IterationItem<T, U>>;
+
+export type OpaqueIterationItem = IterationItem<unknown, unknown>;
+export type OpaqueIterator = AbstractIterator<unknown, unknown, OpaqueIterationItem>;
 
 export interface IteratorDelegate {
   isEmpty(): boolean;
@@ -136,16 +151,10 @@ function uniqueKeyFor(keyFor: KeyFor) {
   };
 }
 
-export class IterableImpl
-  implements
-    AbstractIterable<
-      unknown,
-      unknown,
-      IterationItem<unknown, unknown>,
-      IterationItemReference<unknown>,
-      IterationItemReference<unknown>
-    > {
+export class IterableReference {
   public tag: Tag;
+
+  private iterator: Option<OpaqueIterator> = null;
 
   constructor(
     private parentRef: VersionedPathReference,
@@ -155,7 +164,31 @@ export class IterableImpl
     this.tag = parentRef.tag;
   }
 
-  iterate(): OpaqueIterator {
+  value(): boolean {
+    return !this.isEmpty();
+  }
+
+  isEmpty(): boolean {
+    let iterator = (this.iterator = this.createIterator());
+    return iterator.isEmpty();
+  }
+
+  next(): Option<OpaqueIterationItem> {
+    let iterator = expect(
+      this.iterator,
+      'VM BUG: Expected an iterator to be created before calling `next`'
+    );
+
+    let item = iterator.next();
+
+    if (item === null) {
+      this.iterator = null;
+    }
+
+    return item;
+  }
+
+  private createIterator(): OpaqueIterator {
     let { parentRef, key, env } = this;
 
     let iterable = parentRef.value() as { [Symbol.iterator]: any } | null | false;
@@ -175,35 +208,15 @@ export class IterableImpl
     return new IteratorWrapper(maybeIterator, keyFor);
   }
 
-  valueReferenceFor(item: IterationItem<unknown, unknown>): IterationItemReference<unknown> {
-    let { parentRef, env } = this;
-
-    return new IterationItemReference(parentRef, item.value, item.memo, env);
-  }
-
-  updateValueReference(
-    reference: IterationItemReference<unknown>,
-    item: IterationItem<unknown, unknown>
-  ) {
-    reference.update(item.value);
-  }
-
-  memoReferenceFor(item: IterationItem<unknown, unknown>): IterationItemReference<unknown> {
+  childRefFor(key: unknown, value: unknown): IterationItemReference<unknown> {
     let { parentRef, env } = this;
 
     return new IterationItemReference(
       parentRef,
-      item.memo,
-      DEBUG ? `(key: ${debugToString!(item.key)}` : '',
+      value,
+      DEBUG ? `(key: ${debugToString!(key)}` : '',
       env
     );
-  }
-
-  updateMemoReference(
-    reference: IterationItemReference<unknown>,
-    item: IterationItem<unknown, unknown>
-  ) {
-    reference.update(item.memo);
   }
 }
 

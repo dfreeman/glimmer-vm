@@ -1,6 +1,6 @@
 import { LowLevelVM, VM, UpdatingVM } from './vm';
 
-import { Option, Slice as ListSlice, initializeGuid, fillNulls, assert } from '@glimmer/util';
+import { Option, initializeGuid, fillNulls, assert } from '@glimmer/util';
 import { recordStackSize, opcodeMetadata } from '@glimmer/debug';
 import { $pc, $sp, $ra, $fp } from '@glimmer/vm';
 import { Tag } from '@glimmer/validator';
@@ -193,5 +193,3 @@ export abstract class UpdatingOpcode extends AbstractOpcode {
 
   abstract evaluate(vm: UpdatingVM): void;
 }
-
-export type UpdatingOpSeq = ListSlice<UpdatingOpcode>;

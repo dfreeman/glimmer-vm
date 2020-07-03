@@ -7,15 +7,6 @@ export {
   isSerializationFirstNode,
   SERIALIZATION_FIRST_NODE_STRING,
 } from './lib/is-serialization-first-node';
-export {
-  CloneableListNode,
-  EMPTY_SLICE,
-  LinkedList,
-  LinkedListNode,
-  ListNode,
-  ListSlice,
-  Slice,
-} from './lib/list-utils';
 export { assign, fillNulls, values } from './lib/object-utils';
 export * from './lib/platform-utils';
 export * from './lib/string';
