@@ -9,7 +9,7 @@ import {
   VMArguments,
   CapturedArguments,
 } from '@glimmer/interfaces';
-import { Tag } from '@glimmer/validator';
+import { track, UpdatableTag, createUpdatableTag } from '@glimmer/validator';
 import { registerDestructor } from '@glimmer/runtime';
 
 export interface TestModifierConstructor {
@@ -40,11 +40,15 @@ export class TestModifierManager
     return new TestModifier(element, instance, args.capture(), dom);
   }
 
-  getTag({ args: { tag } }: TestModifier): Tag {
+  getTag({ tag }: TestModifier): UpdatableTag {
     return tag;
   }
 
   install({ element, args, instance }: TestModifier) {
+    // ensure values are tracked;
+    args.named.references.forEach(n => n.value());
+    args.positional.references.forEach(n => n.value());
+
     if (instance && instance.didInsertElement) {
       instance.element = element;
       instance.didInsertElement(args.positional.value(), args.named.value());
@@ -58,6 +62,10 @@ export class TestModifierManager
   }
 
   update({ args, instance }: TestModifier) {
+    // ensure values are tracked;
+    args.named.references.forEach(n => n.value());
+    args.positional.references.forEach(n => n.value());
+
     if (instance && instance.didUpdate) {
       instance.didUpdate(args.positional.value(), args.named.value());
     }
@@ -71,6 +79,8 @@ export class TestModifierManager
 }
 
 export class TestModifier {
+  public tag = createUpdatableTag();
+
   constructor(
     public element: SimpleElement,
     public instance: TestModifierInstance | undefined,

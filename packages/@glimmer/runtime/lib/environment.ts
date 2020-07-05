@@ -34,18 +34,19 @@ import {
 } from '@glimmer/interfaces';
 import {
   PathReference,
-  VersionedPathReference,
-  VersionedReference,
+  Reference,
   IteratorDelegate,
+  NativeIteratorDelegate,
 } from '@glimmer/reference';
-import { assert, expect, symbol } from '@glimmer/util';
+import { assert, expect, symbol, debugToString } from '@glimmer/util';
+import { track, updateTag } from '@glimmer/validator';
 import { AttrNamespace, SimpleElement } from '@simple-dom/interface';
 import { DOMChangesImpl, DOMTreeConstruction } from './dom/helper';
 import { ConditionalReference, UNDEFINED_REFERENCE } from './references';
 import { DynamicAttribute, dynamicAttribute } from './vm/attributes/dynamic';
 import { RuntimeProgramImpl } from '@glimmer/program';
 
-export function isScopeReference(s: ScopeSlot): s is VersionedPathReference {
+export function isScopeReference(s: ScopeSlot): s is PathReference {
   if (s === null || Array.isArray(s)) return false;
   return true;
 }
@@ -211,18 +212,44 @@ class TransactionImpl implements Transaction {
 
     let { scheduledInstallManagers, scheduledInstallModifiers } = this;
 
+    let manager: ModifierManager, modifier: unknown;
+
     for (let i = 0; i < scheduledInstallManagers.length; i++) {
-      let modifier = scheduledInstallModifiers[i];
-      let manager = scheduledInstallManagers[i];
-      manager.install(modifier);
+      modifier = scheduledInstallModifiers[i];
+      manager = scheduledInstallManagers[i];
+
+      let modifierTag = manager.getTag(modifier);
+
+      if (modifierTag !== null) {
+        let tag = track(
+          // eslint-disable-next-line no-loop-func
+          () => manager.install(modifier),
+          DEBUG && `While rendering an instance of a \`${debugToString!(modifier)}\` modifier`
+        );
+        updateTag(modifierTag, tag);
+      } else {
+        manager.install(modifier);
+      }
     }
 
     let { scheduledUpdateModifierManagers, scheduledUpdateModifiers } = this;
 
     for (let i = 0; i < scheduledUpdateModifierManagers.length; i++) {
-      let modifier = scheduledUpdateModifiers[i];
-      let manager = scheduledUpdateModifierManagers[i];
-      manager.update(modifier);
+      modifier = scheduledUpdateModifiers[i];
+      manager = scheduledUpdateModifierManagers[i];
+
+      let modifierTag = manager.getTag(modifier);
+
+      if (modifierTag !== null) {
+        let tag = track(
+          // eslint-disable-next-line no-loop-func
+          () => manager.update(modifier),
+          DEBUG && `While rendering an instance of a \`${debugToString!(modifier)}\` modifier`
+        );
+        updateTag(modifierTag, tag);
+      } else {
+        manager.update(modifier);
+      }
     }
   }
 }
@@ -285,7 +312,7 @@ export class EnvironmentImpl<Extra> implements Environment<Extra> {
     }
   }
 
-  toConditionalReference(input: VersionedPathReference): VersionedReference<boolean> {
+  toConditionalReference(input: PathReference): Reference<boolean> {
     return new ConditionalReference(input, this.delegate.toBool);
   }
 
@@ -395,7 +422,7 @@ export interface EnvironmentDelegate<Extra = undefined> {
    *
    * @param ref The reference to get context for
    */
-  getTemplatePathDebugContext?(ref: VersionedPathReference): string;
+  getTemplatePathDebugContext?(ref: PathReference): string;
 
   /**
    * Allows the embedding environment to setup debugging context at certain
@@ -407,9 +434,9 @@ export interface EnvironmentDelegate<Extra = undefined> {
    * @param parentRef The parent reference
    */
   setTemplatePathDebugContext?(
-    ref: VersionedPathReference,
+    ref: PathReference,
     desc: string,
-    parentRef: Option<VersionedPathReference>
+    parentRef: Option<PathReference>
   ): void;
 
   /**
@@ -484,7 +511,7 @@ function defaultToBool(value: unknown) {
 
 function defaultToIterator(value: any): Option<IteratorDelegate> {
   if (value && value[Symbol.iterator]) {
-    return value[Symbol.iterator]();
+    return NativeIteratorDelegate.from(value);
   }
 
   return null;

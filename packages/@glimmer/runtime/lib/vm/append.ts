@@ -21,12 +21,7 @@ import {
 } from '@glimmer/interfaces';
 import { LOCAL_SHOULD_LOG } from '@glimmer/local-debug-flags';
 import { RuntimeOpImpl } from '@glimmer/program';
-import {
-  PathReference,
-  VersionedPathReference,
-  IterableReference,
-  OpaqueIterationItem,
-} from '@glimmer/reference';
+import { PathReference, OpaqueIterationItem, IterableReference } from '@glimmer/reference';
 import { expect, Option, Stack, assert } from '@glimmer/util';
 import {
   $fp,
@@ -44,11 +39,14 @@ import {
 } from '@glimmer/vm';
 import { CheckNumber, check } from '@glimmer/debug';
 import { unwrapHandle } from '@glimmer/util';
-import { combineFromIndex } from '../utils/tags';
-import { DidModifyOpcode, JumpIfNotModifiedOpcode } from '../compiled/opcodes/vm';
+import {
+  JumpIfNotModifiedOpcode,
+  BeginTrackFrameOpcode,
+  EndTrackFrameOpcode,
+} from '../compiled/opcodes/vm';
 import { ScopeImpl } from '../environment';
 import { APPEND_OPCODES, DebugState, UpdatingOpcode } from '../opcodes';
-import { UNDEFINED_REFERENCE } from '../references';
+import { UNDEFINED_REFERENCE, PrimitiveReference } from '../references';
 import { ARGS, CONSTANTS, DESTROYABLE_STACK, HEAP, INNER_VM, REGISTERS, STACKS } from '../symbols';
 import { VMArgumentsImpl } from './arguments';
 import LowLevelVM from './low-level';
@@ -65,6 +63,9 @@ import {
 } from './update';
 import { associateDestroyableChild } from '../destroyables';
 import { LiveBlockList } from './element-builder';
+import { beginTrackFrame, endTrackFrame, resetTracking } from '@glimmer/validator';
+
+const _memoRef = PrimitiveReference.create(0);
 
 /**
  * This interface is used by internal opcodes, and is more stable than
@@ -130,7 +131,8 @@ export interface InternalVM<C extends JitOrAotBlock = JitOrAotBlock> {
 
   execute(initialize?: (vm: this) => void): RenderResult;
   pushUpdating(list?: UpdatingOpcode[]): void;
-  next(): RichIteratorResult<null, RenderResult>;
+  next(): Option<RenderResult>;
+  end(): void;
 }
 
 export interface InternalJitVM extends InternalVM<CompilableBlock> {
@@ -155,6 +157,8 @@ export default abstract class VM<C extends JitOrAotBlock> implements PublicVM, I
   readonly [CONSTANTS]: RuntimeConstants;
   readonly [ARGS]: VMArgumentsImpl;
   readonly [INNER_VM]: LowLevelVM;
+
+  private result: Option<RenderResultImpl> = null;
 
   get stack(): EvaluationStack {
     return this[INNER_VM].stack as EvaluationStack;
@@ -330,20 +334,21 @@ export default abstract class VM<C extends JitOrAotBlock> implements PublicVM, I
 
   beginCacheGroup() {
     let opcodes = this.updating();
-    let guard = new JumpIfNotModifiedOpcode(opcodes.length);
+    let guard = new JumpIfNotModifiedOpcode();
 
     opcodes.push(guard);
+    opcodes.push(new BeginTrackFrameOpcode());
     this[STACKS].cache.push(guard);
+
+    beginTrackFrame();
   }
 
   commitCacheGroup() {
     let opcodes = this.updating();
     let guard = expect(this[STACKS].cache.pop(), 'VM BUG: Expected a cache group');
 
-    let startIndex = guard.index;
-
-    let tag = combineFromIndex(opcodes, startIndex);
-    opcodes.push(new DidModifyOpcode(guard));
+    let tag = endTrackFrame();
+    opcodes.push(new EndTrackFrameOpcode(guard));
 
     guard.finalize(tag, opcodes.length);
   }
@@ -366,7 +371,7 @@ export default abstract class VM<C extends JitOrAotBlock> implements PublicVM, I
     let { stack } = this;
 
     let valueRef = iterableRef.childRefFor(key, value);
-    let memoRef = iterableRef.childRefFor(key, memo);
+    let memoRef = _memoRef;
 
     stack.push(valueRef);
     stack.push(memoRef);
@@ -410,12 +415,6 @@ export default abstract class VM<C extends JitOrAotBlock> implements PublicVM, I
     this[DESTROYABLE_STACK].pop();
     this.elements().popBlock();
     this.popUpdating();
-
-    let updating = this.updating();
-
-    let parent = updating[updating.length - 1] as BlockOpcode;
-
-    parent.didInitializeChildren();
   }
 
   exitList() {
@@ -515,50 +514,51 @@ export default abstract class VM<C extends JitOrAotBlock> implements PublicVM, I
       console.log(`EXECUTING FROM ${this[INNER_VM].fetchRegister($pc)}`);
     }
 
+    this.result = {};
+
     if (initialize) initialize(this);
 
-    let result: RichIteratorResult<null, RenderResult>;
+    this.result = null;
 
-    try {
-      while (true) {
+    let result: Option<RenderResult> = null;
+
+    // try {
+      while (result === null) {
         result = this.next();
-        if (result.done) break;
       }
-    } finally {
-      // If any existing blocks are open, due to an error or something like
-      // that, we need to close them all and clean things up properly.
-      let elements = this.elements();
 
-      while (elements.hasBlocks) {
-        elements.popBlock();
-      }
-    }
+      return result;
+    // } catch (e) {
+    //   // If any existing blocks are open, due to an error or something like
+    //   // that, we need to close them all and clean things up properly.
+    //   let elements = this.elements();
 
-    return result.value;
+    //   while (elements.hasBlocks) {
+    //     elements.popBlock();
+    //   }
+
+    //   resetTracking();
+
+    //   throw e;
+    // }
   }
 
-  next(): RichIteratorResult<null, RenderResult> {
-    let { env, elementStack } = this;
-    let opcode = this[INNER_VM].nextStatement();
-    let result: RichIteratorResult<null, RenderResult>;
-    if (opcode !== null) {
-      this[INNER_VM].evaluateOuter(opcode, this);
-      result = { done: false, value: null };
-    } else {
-      // Unload the stack
-      this.stack.reset();
+  next(): Option<RenderResult> {
+    let innerVM = this[INNER_VM];
+    innerVM.evaluateNext(this);
 
-      result = {
-        done: true,
-        value: new RenderResultImpl(
-          env,
-          this.popUpdating(),
-          elementStack.popBlock(),
-          this.destructor
-        ),
-      };
-    }
-    return result;
+    return this.result;
+  }
+
+  end(): void {
+    let { env, elementStack } = this;
+
+    this.result = new RenderResultImpl(
+      env,
+      this.popUpdating(),
+      elementStack.popBlock(),
+      this.destructor
+    );
   }
 
   bindDynamicScope(names: number[]) {
@@ -566,7 +566,7 @@ export default abstract class VM<C extends JitOrAotBlock> implements PublicVM, I
 
     for (let i = names.length - 1; i >= 0; i--) {
       let name = this[CONSTANTS].getString(names[i]);
-      scope.set(name, this.stack.pop<VersionedPathReference<unknown>>());
+      scope.set(name, this.stack.pop<PathReference<unknown>>());
     }
   }
 }

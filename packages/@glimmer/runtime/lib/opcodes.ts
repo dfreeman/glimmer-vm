@@ -3,7 +3,6 @@ import { LowLevelVM, VM, UpdatingVM } from './vm';
 import { Option, initializeGuid, fillNulls, assert } from '@glimmer/util';
 import { recordStackSize, opcodeMetadata } from '@glimmer/debug';
 import { $pc, $sp, $ra, $fp } from '@glimmer/vm';
-import { Tag } from '@glimmer/validator';
 import { RuntimeOp, Op, JitOrAotBlock, Maybe, Dict } from '@glimmer/interfaces';
 import { LOCAL_DEBUG, LOCAL_SHOULD_LOG } from '@glimmer/local-debug-flags';
 // these import bindings will be stripped from build
@@ -28,11 +27,6 @@ export type Operand3 = number;
 
 export type Syscall = (vm: InternalVM<JitOrAotBlock>, opcode: RuntimeOp) => void;
 export type JitSyscall = (vm: InternalJitVM, opcode: RuntimeOp) => void;
-export type MachineOpcode = (vm: LowLevelVM, opcode: RuntimeOp) => void;
-
-export type Evaluate =
-  | { syscall: true; evaluate: Syscall }
-  | { syscall: false; evaluate: MachineOpcode };
 
 export type DebugState = {
   pc: number;
@@ -46,20 +40,12 @@ export type DebugState = {
 };
 
 export class AppendOpcodes {
-  private evaluateOpcode: Evaluate[] = fillNulls<Evaluate>(Op.Size).slice();
+  private evaluateOpcode: Syscall[] = fillNulls<Syscall>(Op.Size).slice();
 
   add<Name extends Op>(name: Name, evaluate: Syscall): void;
-  add<Name extends Op>(name: Name, evaluate: MachineOpcode, kind: 'machine'): void;
   add<Name extends Op>(name: Name, evaluate: JitSyscall, kind: 'jit'): void;
-  add<Name extends Op>(
-    name: Name,
-    evaluate: Syscall | JitSyscall | MachineOpcode,
-    kind = 'syscall'
-  ): void {
-    this.evaluateOpcode[name as number] = {
-      syscall: kind !== 'machine',
-      evaluate,
-    } as Evaluate;
+  add<Name extends Op>(name: Name, evaluate: Syscall | JitSyscall, kind = 'syscall'): void {
+    this.evaluateOpcode[name as number] = evaluate as Syscall;
   }
 
   debugBefore(vm: VM<JitOrAotBlock>, opcode: RuntimeOp): DebugState {
@@ -156,21 +142,7 @@ export class AppendOpcodes {
   }
 
   evaluate(vm: VM<JitOrAotBlock>, opcode: RuntimeOp, type: number) {
-    let operation = this.evaluateOpcode[type];
-
-    if (operation.syscall) {
-      assert(
-        !opcode.isMachine,
-        `BUG: Mismatch between operation.syscall (${operation.syscall}) and opcode.isMachine (${opcode.isMachine}) for ${opcode.type}`
-      );
-      operation.evaluate(vm, opcode);
-    } else {
-      assert(
-        opcode.isMachine,
-        `BUG: Mismatch between operation.syscall (${operation.syscall}) and opcode.isMachine (${opcode.isMachine}) for ${opcode.type}`
-      );
-      operation.evaluate(vm[INNER_VM], opcode);
-    }
+    this.evaluateOpcode[type](vm, opcode);
   }
 }
 
@@ -186,8 +158,6 @@ export abstract class AbstractOpcode {
 }
 
 export abstract class UpdatingOpcode extends AbstractOpcode {
-  public abstract tag: Tag;
-
   next: Option<UpdatingOpcode> = null;
   prev: Option<UpdatingOpcode> = null;
 

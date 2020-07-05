@@ -1,4 +1,4 @@
-import { VersionedPathReference, VersionedReference, IteratorDelegate } from '@glimmer/reference';
+import { PathReference, Reference, IteratorDelegate } from '@glimmer/reference';
 import { AttributeOperation } from '../dom/attributes';
 import { AttrNamespace, SimpleElement, SimpleDocument } from '@simple-dom/interface';
 import { ComponentInstanceState } from '../components';
@@ -44,7 +44,7 @@ export interface Environment<Extra = unknown> {
   getAppendOperations(): GlimmerTreeConstruction;
 
   // Moving away from this, toward `toBool`
-  toConditionalReference(reference: VersionedReference<unknown>): VersionedReference<boolean>;
+  toConditionalReference(reference: Reference<unknown>): Reference<boolean>;
 
   toBool(value: unknown): boolean;
   toIterator(value: unknown): Option<IteratorDelegate>;
@@ -52,11 +52,11 @@ export interface Environment<Extra = unknown> {
   getPath(item: unknown, path: string): unknown;
   setPath(item: unknown, path: string, value: unknown): unknown;
 
-  getTemplatePathDebugContext(ref: VersionedPathReference): string;
+  getTemplatePathDebugContext(ref: PathReference): string;
   setTemplatePathDebugContext(
-    ref: VersionedPathReference,
+    ref: PathReference,
     desc: string,
-    parentRef: Option<VersionedPathReference>
+    parentRef: Option<PathReference>
   ): void;
 
   isInteractive: boolean;
@@ -64,7 +64,7 @@ export interface Environment<Extra = unknown> {
 }
 
 export interface DynamicScope {
-  get(key: string): VersionedPathReference<unknown>;
-  set(key: string, reference: VersionedPathReference<unknown>): VersionedPathReference<unknown>;
+  get(key: string): PathReference<unknown>;
+  set(key: string, reference: PathReference<unknown>): PathReference<unknown>;
   child(): DynamicScope;
 }

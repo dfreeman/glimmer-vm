@@ -11,12 +11,10 @@ import {
   dirtyTag,
   dirtyTagFor,
   isTracking,
-  isConstMemo,
   runInAutotrackingTransaction,
   setPropertyDidChange,
   tagFor,
   track,
-  memo,
   trackedData,
   untrack,
   validateTag,
@@ -266,134 +264,134 @@ module('@glimmer/validator: tracking', () => {
     });
   });
 
-  module('memo', () => {
-    test('it memoizes based on tags that are consumed within a track frame', assert => {
-      let tag1 = createTag();
-      let tag2 = createTag();
-      let count = 0;
+  // module('memo', () => {
+  //   test('it memoizes based on tags that are consumed within a track frame', assert => {
+  //     let tag1 = createTag();
+  //     let tag2 = createTag();
+  //     let count = 0;
 
-      let fn = memo(() => {
-        consumeTag(tag1);
-        consumeTag(tag2);
+  //     let fn = memo(() => {
+  //       consumeTag(tag1);
+  //       consumeTag(tag2);
 
-        return ++count;
-      });
+  //       return ++count;
+  //     });
 
-      assert.equal(fn(), 1, 'called correctly the first time');
-      assert.equal(fn(), 1, 'memoized result returned second time');
+  //     assert.equal(fn(), 1, 'called correctly the first time');
+  //     assert.equal(fn(), 1, 'memoized result returned second time');
 
-      dirtyTag(tag1);
-      assert.equal(fn(), 2, 'cache busted when tag1 dirtied');
-      assert.equal(fn(), 2, 'memoized result returned when nothing dirtied');
+  //     dirtyTag(tag1);
+  //     assert.equal(fn(), 2, 'cache busted when tag1 dirtied');
+  //     assert.equal(fn(), 2, 'memoized result returned when nothing dirtied');
 
-      dirtyTag(tag2);
-      assert.equal(fn(), 3, 'cache busted when tag2 dirtied');
-      assert.equal(fn(), 3, 'memoized result returned when nothing dirtied');
-    });
+  //     dirtyTag(tag2);
+  //     assert.equal(fn(), 3, 'cache busted when tag2 dirtied');
+  //     assert.equal(fn(), 3, 'memoized result returned when nothing dirtied');
+  //   });
 
-    test('it ignores tags consumed within an untrack frame', assert => {
-      let tag1 = createTag();
-      let tag2 = createTag();
-      let count = 0;
+  //   test('it ignores tags consumed within an untrack frame', assert => {
+  //     let tag1 = createTag();
+  //     let tag2 = createTag();
+  //     let count = 0;
 
-      let fn = memo(() => {
-        consumeTag(tag1);
+  //     let fn = memo(() => {
+  //       consumeTag(tag1);
 
-        untrack(() => consumeTag(tag2));
+  //       untrack(() => consumeTag(tag2));
 
-        return ++count;
-      });
+  //       return ++count;
+  //     });
 
-      assert.equal(fn(), 1, 'called correctly the first time');
-      assert.equal(fn(), 1, 'memoized result returned second time');
+  //     assert.equal(fn(), 1, 'called correctly the first time');
+  //     assert.equal(fn(), 1, 'memoized result returned second time');
 
-      dirtyTag(tag1);
-      assert.equal(fn(), 2, 'cache busted when tag1 dirtied');
-      assert.equal(fn(), 2, 'memoized result returned when nothing dirtied');
+  //     dirtyTag(tag1);
+  //     assert.equal(fn(), 2, 'cache busted when tag1 dirtied');
+  //     assert.equal(fn(), 2, 'memoized result returned when nothing dirtied');
 
-      dirtyTag(tag2);
-      assert.equal(fn(), 2, 'cache not busted when tag2 dirtied');
-    });
+  //     dirtyTag(tag2);
+  //     assert.equal(fn(), 2, 'cache not busted when tag2 dirtied');
+  //   });
 
-    test('nested memoizations work, and automatically propogate', assert => {
-      let innerTag = createTag();
-      let outerTag = createTag();
+  //   test('nested memoizations work, and automatically propogate', assert => {
+  //     let innerTag = createTag();
+  //     let outerTag = createTag();
 
-      let innerCount = 0;
-      let outerCount = 0;
+  //     let innerCount = 0;
+  //     let outerCount = 0;
 
-      let innerFn = memo(() => {
-        consumeTag(innerTag);
+  //     let innerFn = memo(() => {
+  //       consumeTag(innerTag);
 
-        return ++innerCount;
-      });
+  //       return ++innerCount;
+  //     });
 
-      let outerFn = memo(() => {
-        consumeTag(outerTag);
+  //     let outerFn = memo(() => {
+  //       consumeTag(outerTag);
 
-        return [++outerCount, innerFn()];
-      });
+  //       return [++outerCount, innerFn()];
+  //     });
 
-      assert.deepEqual(outerFn(), [1, 1], 'both functions called correctly the first time');
-      assert.deepEqual(outerFn(), [1, 1], 'memoized result returned correctly');
+  //     assert.deepEqual(outerFn(), [1, 1], 'both functions called correctly the first time');
+  //     assert.deepEqual(outerFn(), [1, 1], 'memoized result returned correctly');
 
-      dirtyTag(outerTag);
+  //     dirtyTag(outerTag);
 
-      assert.deepEqual(outerFn(), [2, 1], 'outer result updated, inner result still memoized');
-      assert.deepEqual(outerFn(), [2, 1], 'memoized result returned correctly');
+  //     assert.deepEqual(outerFn(), [2, 1], 'outer result updated, inner result still memoized');
+  //     assert.deepEqual(outerFn(), [2, 1], 'memoized result returned correctly');
 
-      dirtyTag(innerTag);
+  //     dirtyTag(innerTag);
 
-      assert.deepEqual(outerFn(), [3, 2], 'both inner and outer result updated');
-      assert.deepEqual(outerFn(), [3, 2], 'memoized result returned correctly');
-    });
+  //     assert.deepEqual(outerFn(), [3, 2], 'both inner and outer result updated');
+  //     assert.deepEqual(outerFn(), [3, 2], 'memoized result returned correctly');
+  //   });
 
-    test('isTracking works within a memoized function and untrack frame', assert => {
-      assert.expect(3);
-      assert.notOk(isTracking());
+  //   test('isTracking works within a memoized function and untrack frame', assert => {
+  //     assert.expect(3);
+  //     assert.notOk(isTracking());
 
-      let fn = memo(() => {
-        assert.ok(isTracking());
+  //     let fn = memo(() => {
+  //       assert.ok(isTracking());
 
-        untrack(() => {
-          assert.notOk(isTracking());
-        });
-      });
+  //       untrack(() => {
+  //         assert.notOk(isTracking());
+  //       });
+  //     });
 
-      fn();
-    });
+  //     fn();
+  //   });
 
-    test('isConstMemo allows users to check if a memoized function is constant', assert => {
-      let tag = createTag();
+  //   test('isConstMemo allows users to check if a memoized function is constant', assert => {
+  //     let tag = createTag();
 
-      let constFn = memo(() => {
-        // do nothing;
-      });
+  //     let constFn = memo(() => {
+  //       // do nothing;
+  //     });
 
-      let nonConstFn = memo(() => {
-        consumeTag(tag);
-      });
+  //     let nonConstFn = memo(() => {
+  //       consumeTag(tag);
+  //     });
 
-      constFn();
-      nonConstFn();
+  //     constFn();
+  //     nonConstFn();
 
-      assert.ok(isConstMemo(constFn), 'constant function returns true');
-      assert.notOk(isConstMemo(nonConstFn), 'non-constant function returns false');
-    });
+  //     assert.ok(isConstMemo(constFn), 'constant function returns true');
+  //     assert.notOk(isConstMemo(nonConstFn), 'non-constant function returns false');
+  //   });
 
-    if (DEBUG) {
-      test('isConstMemo throws an error in DEBUG mode if users attempt to check a function before it has been called', assert => {
-        let fn = memo(() => {
-          // do nothing;
-        });
+  //   if (DEBUG) {
+  //     test('isConstMemo throws an error in DEBUG mode if users attempt to check a function before it has been called', assert => {
+  //       let fn = memo(() => {
+  //         // do nothing;
+  //       });
 
-        assert.throws(
-          () => isConstMemo(fn),
-          /Error: isConst\(\) can only be used on a cache once getValue\(\) has been called at least once/
-        );
-      });
-    }
-  });
+  //       assert.throws(
+  //         () => isConstMemo(fn),
+  //         /Error: isConst\(\) can only be used on a cache once getValue\(\) has been called at least once/
+  //       );
+  //     });
+  //   }
+  // });
 
   module('tracking cache', () => {
     test('it memoizes based on tags that are consumed within a track frame', assert => {

@@ -1,9 +1,8 @@
-import { Tag } from '@glimmer/validator';
 import { Option, Dict } from '@glimmer/interfaces';
-import { EMPTY_ARRAY, isObject, debugToString, expect } from '@glimmer/util';
+import { EMPTY_ARRAY, isObject, debugToString } from '@glimmer/util';
 import { DEBUG } from '@glimmer/env';
 import { IterationItemReference, TemplateReferenceEnvironment } from './template';
-import { VersionedPathReference } from './reference';
+import { PathReference, CachedReference } from './reference';
 
 export interface IterationItem<T, U> {
   key: unknown;
@@ -15,8 +14,6 @@ export interface AbstractIterator<T, U, V extends IterationItem<T, U>> {
   isEmpty(): boolean;
   next(): Option<V>;
 }
-
-export type Iterator<T, U> = AbstractIterator<T, U, IterationItem<T, U>>;
 
 export type OpaqueIterationItem = IterationItem<unknown, unknown>;
 export type OpaqueIterator = AbstractIterator<unknown, unknown, OpaqueIterationItem>;
@@ -151,69 +148,61 @@ function uniqueKeyFor(keyFor: KeyFor) {
   };
 }
 
-export class IterableReference {
-  public tag: Tag;
-
-  private iterator: Option<OpaqueIterator> = null;
+export class IterableReference extends CachedReference<boolean> {
+  private _iterator: Option<OpaqueIterator> = null;
+  private isEmpty = false;
 
   constructor(
-    private parentRef: VersionedPathReference,
+    private parentRef: PathReference,
     private key: string,
     private env: TemplateReferenceEnvironment
   ) {
-    this.tag = parentRef.tag;
-  }
-
-  value(): boolean {
-    return !this.isEmpty();
-  }
-
-  isEmpty(): boolean {
-    let iterator = (this.iterator = this.createIterator());
-    return iterator.isEmpty();
+    super();
   }
 
   next(): Option<OpaqueIterationItem> {
-    let iterator = expect(
-      this.iterator,
-      'VM BUG: Expected an iterator to be created before calling `next`'
-    );
-
-    let item = iterator.next();
+    let item = this._iterator!.next();
 
     if (item === null) {
-      this.iterator = null;
+      this._iterator = null;
     }
 
     return item;
   }
 
-  private createIterator(): OpaqueIterator {
+  isDone() {
+    return this._iterator === null;
+  }
+
+  compute() {
     let { parentRef, key, env } = this;
 
     let iterable = parentRef.value() as { [Symbol.iterator]: any } | null | false;
 
     let keyFor = makeKeyFor(key, env.getPath);
 
-    if (Array.isArray(iterable)) {
-      return new ArrayIterator(iterable, keyFor);
+    if (Array.isArray(iterable!)) {
+      this._iterator = new ArrayIterator(iterable, keyFor);
+    } else {
+      let maybeIterator = env.toIterator(iterable!);
+
+      if (maybeIterator === null) {
+        this._iterator = new ArrayIterator(EMPTY_ARRAY, () => null);
+      } else {
+        this._iterator = new IteratorWrapper(maybeIterator, keyFor);
+      }
     }
 
-    let maybeIterator = env.toIterator(iterable);
-
-    if (maybeIterator === null) {
-      return new ArrayIterator(EMPTY_ARRAY, () => null);
-    }
-
-    return new IteratorWrapper(maybeIterator, keyFor);
+    return !this._iterator.isEmpty();
   }
 
   childRefFor(key: unknown, value: unknown): IterationItemReference<unknown> {
-    let { parentRef, env } = this;
+    let { parentRef, env, key: iterableKey } = this;
 
     return new IterationItemReference(
       parentRef,
       value,
+      iterableKey !== '@primitive',
       DEBUG ? `(key: ${debugToString!(key)}` : '',
       env
     );
@@ -273,5 +262,51 @@ class ArrayIterator implements OpaqueIterator {
     let memo = this.pos;
 
     return { key, value, memo };
+  }
+}
+
+export class NativeIteratorDelegate<T = unknown> implements IteratorDelegate {
+  static from<T>(iterable: Iterable<T>) {
+    let iterator = iterable[Symbol.iterator]();
+    let result = iterator.next();
+    let { done } = result;
+
+    if (done === true) {
+      return null;
+    } else {
+      return new this(iterator, result);
+    }
+  }
+
+  private position = 0;
+
+  constructor(private iterable: Iterator<T>, private result: IteratorResult<T>) {}
+
+  isEmpty(): false {
+    return false;
+  }
+
+  valueFor(result: IteratorResult<unknown>, _position: number): T {
+    return result.value;
+  }
+
+  memoFor(_result: IteratorResult<unknown>, position: number): unknown {
+    return position;
+  }
+
+  next() {
+    let { iterable, result, position } = this;
+
+    if (result.done) {
+      return null;
+    }
+
+    let value = this.valueFor(result, position);
+    let memo = this.memoFor(result, position);
+
+    this.position++;
+    this.result = iterable.next();
+
+    return { value, memo };
   }
 }

@@ -1,13 +1,16 @@
-import { VOLATILE_TAG, VolatileTag } from '@glimmer/validator';
+import { VOLATILE_TAG, consumeTag } from '@glimmer/validator';
 import { Reference, PathReference } from '../..';
 
 export class VolatileReference<T = unknown> implements PathReference<T> {
   constructor(private inner: T) {}
 
-  public tag: VolatileTag = VOLATILE_TAG;
-
   value() {
+    consumeTag(VOLATILE_TAG);
     return this.inner;
+  }
+
+  isConst() {
+    return false;
   }
 
   update(value: T) {
@@ -22,8 +25,6 @@ export class VolatileReference<T = unknown> implements PathReference<T> {
 class PropertyReference<T = unknown> implements PathReference<T> {
   constructor(private parent: Reference, private key: string) {}
 
-  public tag: VolatileTag = VOLATILE_TAG;
-
   value() {
     let parent = this.parent.value();
     let { key } = this;
@@ -31,6 +32,10 @@ class PropertyReference<T = unknown> implements PathReference<T> {
     if (typeof parent === 'function' || (typeof parent === 'object' && parent !== null)) {
       return (parent as any)[key];
     }
+  }
+
+  isConst() {
+    return false;
   }
 
   get(key: string) {

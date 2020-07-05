@@ -7,6 +7,7 @@ import {
   Revision,
   valueForTag,
   isConstTag,
+  createCombinatorTag,
 } from './validators';
 
 import { markTagAsConsumed, runInAutotrackingTransaction } from './debug';
@@ -22,6 +23,8 @@ class Tracker {
   private last: Option<Tag> = null;
 
   add(tag: Tag) {
+    if (tag === CONSTANT_TAG) return;
+
     this.tags.add(tag);
 
     if (DEBUG) {
@@ -41,7 +44,7 @@ class Tracker {
     } else {
       let tagsArr: Tag[] = [];
       tags.forEach(tag => tagsArr.push(tag));
-      return combine(tagsArr);
+      return createCombinatorTag(tagsArr);
     }
   }
 }
@@ -81,6 +84,15 @@ export function endTrackFrame(): Tag {
   return current!.combine();
 }
 
+// This function is only for handling errors and resetting to a valid state
+export function resetTracking() {
+  while (OPEN_TRACK_FRAMES.length > 0) {
+    OPEN_TRACK_FRAMES.pop();
+  }
+
+  CURRENT_TRACKER = null;
+}
+
 export function isTracking() {
   return CURRENT_TRACKER !== null;
 }
@@ -95,27 +107,27 @@ export function consumeTag(tag: Tag) {
 
 const CACHE_KEY: unique symbol = symbol('CACHE_KEY');
 
-interface Memo {
-  [CACHE_KEY]: Cache;
-}
+// interface Memo {
+//   [CACHE_KEY]: Cache;
+// }
 
-export function memo<T>(callback: () => T, debuggingContext?: string | false) {
-  let cache = createCache(callback, debuggingContext);
+// export function memo<T>(callback: () => T, debuggingContext?: string | false) {
+//   let cache = createCache(callback, debuggingContext);
 
-  let memoized = () => getValue(cache);
+//   let memoized = () => getValue(cache);
 
-  ((memoized as unknown) as Memo)[CACHE_KEY] = cache;
+//   ((memoized as unknown) as Memo)[CACHE_KEY] = cache;
 
-  return memoized;
-}
+//   return memoized;
+// }
 
-export function isConstMemo(fn: Function | Memo) {
-  return isMemo(fn) ? isConst(fn[CACHE_KEY]) : false;
-}
+// export function isConstMemo(fn: Function | Memo) {
+//   return isMemo(fn) ? isConst(fn[CACHE_KEY]) : false;
+// }
 
-function isMemo(fn: Function | Memo): fn is Memo {
-  return CACHE_KEY in fn;
-}
+// function isMemo(fn: Function | Memo): fn is Memo {
+//   return CACHE_KEY in fn;
+// }
 
 //////////
 

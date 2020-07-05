@@ -1,21 +1,7 @@
 import { ComponentInstanceState, CapturedArguments, Option } from '@glimmer/interfaces';
 import { dict, isDict, symbol, debugToString } from '@glimmer/util';
-import {
-  CONSTANT_TAG,
-  Tag,
-  combine,
-  createUpdatableTag,
-  UpdatableTag,
-  dirtyTag,
-  updateTag,
-  track,
-  Revision,
-  isConstTagged,
-  isConstTag,
-  valueForTag,
-  validateTag,
-} from '@glimmer/validator';
-import { VersionedPathReference } from './reference';
+import { dirtyTag, consumeTag, createTag, DirtyableTag } from '@glimmer/validator';
+import { PathReference, CachedReference } from './reference';
 import { DEBUG } from '@glimmer/env';
 import { IteratorDelegate } from './iterable-impl';
 
@@ -35,7 +21,7 @@ export const UPDATE_REFERENCED_VALUE: unique symbol = symbol('UPDATE_REFERENCED_
  * reference. Paths are represented by a chain of references, and iterables
  * consist of an array of many item references.
  */
-export interface TemplatePathReference<T = unknown> extends VersionedPathReference<T> {
+export interface TemplatePathReference<T = unknown> extends PathReference<T> {
   [UPDATE_REFERENCED_VALUE]?: (value: T) => void;
 }
 
@@ -51,11 +37,11 @@ export interface TemplateReferenceEnvironment {
   getPath(obj: unknown, path: string): unknown;
   setPath(obj: unknown, path: string, value: unknown): unknown;
 
-  getTemplatePathDebugContext(ref: VersionedPathReference): string;
+  getTemplatePathDebugContext(ref: PathReference): string;
   setTemplatePathDebugContext(
-    ref: VersionedPathReference,
+    ref: PathReference,
     desc: string,
-    parentRef: Option<VersionedPathReference>
+    parentRef: Option<PathReference>
   ): void;
 
   toIterator(obj: unknown): Option<IteratorDelegate>;
@@ -73,17 +59,16 @@ export interface TemplateReferenceEnvironment {
  * chain off a root reference in the template, and can then be passed around and
  * used at will.
  */
-export abstract class RootReference<T = unknown> implements TemplatePathReference<T> {
+export abstract class RootReference<T = unknown> extends CachedReference<T>
+  implements TemplatePathReference<T> {
   private children = dict<PropertyReference>();
 
   protected didSetupDebugContext?: boolean;
   protected debugLogName?: string;
 
-  tag: Tag = CONSTANT_TAG;
-
-  constructor(protected env: TemplateReferenceEnvironment) {}
-
-  abstract value(): T;
+  constructor(protected env: TemplateReferenceEnvironment) {
+    super();
+  }
 
   get(key: string): TemplatePathReference {
     // References should in general be identical to one another, so we can usually
@@ -125,19 +110,25 @@ export class ComponentRootReference<T extends ComponentInstanceState> extends Ro
   value() {
     return this.inner;
   }
+
+  isConst() {
+    return true;
+  }
+
+  // Make type checker happy...
+  compute() {
+    return this.inner;
+  }
 }
 
 export type InternalHelperFunction<T = unknown> = (args: CapturedArguments) => T;
 
 export class HelperRootReference<T = unknown> extends RootReference<T> {
-  private computeRevision: Option<Revision> = null;
-  private computeValue?: T;
-  private computeTag: Option<Tag> = null;
-  private valueTag?: UpdatableTag;
+  compute: () => T;
 
   constructor(
-    private fn: InternalHelperFunction<T>,
-    private args: CapturedArguments,
+    fn: InternalHelperFunction<T>,
+    args: CapturedArguments,
     env: TemplateReferenceEnvironment,
     debugName?: string
   ) {
@@ -150,45 +141,9 @@ export class HelperRootReference<T = unknown> extends RootReference<T> {
       this.didSetupDebugContext = true;
     }
 
-    if (isConstTagged(args)) {
-      this.compute();
-    }
+    this.compute = fn.bind(null, args);
 
-    let { tag, computeTag } = this;
-
-    if (computeTag !== null && isConstTag(computeTag)) {
-      // If the args are constant, and the first computation is constant, then
-      // the helper itself is constant and will never update.
-      tag = this.tag = CONSTANT_TAG;
-      this.computeRevision = valueForTag(tag);
-    } else {
-      let valueTag = (this.valueTag = createUpdatableTag());
-      tag = this.tag = combine([args.tag, valueTag]);
-
-      if (computeTag !== null) {
-        // We computed once, so setup the cache state correctly
-        updateTag(valueTag, computeTag);
-        this.computeRevision = valueForTag(tag);
-      }
-    }
-  }
-
-  compute() {
-    this.computeTag = track(() => {
-      this.computeValue = this.fn(this.args);
-    }, DEBUG && this.env.getTemplatePathDebugContext(this));
-  }
-
-  value(): T {
-    let { tag, computeRevision } = this;
-
-    if (computeRevision === null || !validateTag(tag, computeRevision)) {
-      this.compute();
-      updateTag(this.valueTag!, this.computeTag!);
-      this.computeRevision = valueForTag(tag);
-    }
-
-    return this.computeValue!;
+    // this.value = memo(() => fn(args), DEBUG && this.env.getTemplatePathDebugContext(this));
   }
 }
 
@@ -200,49 +155,29 @@ export class HelperRootReference<T = unknown> extends RootReference<T> {
  * recursively calling `get` on the previous reference as a template chain is
  * followed.
  */
-export class PropertyReference implements TemplatePathReference {
-  public tag: Tag;
-  private valueTag: UpdatableTag;
+export class PropertyReference extends CachedReference implements TemplatePathReference {
   private children = dict<PropertyReference>();
-  private lastRevision: Option<Revision> = null;
-  private lastValue: unknown;
 
   constructor(
     protected parentReference: TemplatePathReference,
     protected propertyKey: string,
     protected env: TemplateReferenceEnvironment
   ) {
+    super();
+
     if (DEBUG) {
       env.setTemplatePathDebugContext(this, propertyKey, parentReference);
     }
-
-    let valueTag = (this.valueTag = createUpdatableTag());
-    let parentReferenceTag = parentReference.tag;
-
-    this.tag = combine([parentReferenceTag, valueTag]);
   }
 
-  value() {
-    let { tag, lastRevision, lastValue, parentReference, valueTag, propertyKey } = this;
+  compute() {
+    let { parentReference, propertyKey } = this;
 
-    if (lastRevision === null || !validateTag(tag, lastRevision)) {
-      let parentValue = parentReference.value();
+    let parentValue = parentReference.value();
 
-      if (isDict(parentValue)) {
-        let combined = track(() => {
-          lastValue = this.env.getPath(parentValue, propertyKey);
-        }, DEBUG && this.env.getTemplatePathDebugContext(this));
-
-        updateTag(valueTag, combined);
-      } else {
-        lastValue = undefined;
-      }
-
-      this.lastValue = lastValue;
-      this.lastRevision = valueForTag(tag);
+    if (isDict(parentValue)) {
+      return this.env.getPath(parentValue, propertyKey);
     }
-
-    return lastValue;
   }
 
   get(key: string): TemplatePathReference {
@@ -288,30 +223,40 @@ export class PropertyReference implements TemplatePathReference {
  * reference types.
  */
 export class IterationItemReference<T = unknown> implements TemplatePathReference<T> {
-  public tag = createUpdatableTag();
   private children = dict<PropertyReference>();
+  private tag: Option<DirtyableTag> = null;
 
   constructor(
     public parentReference: TemplatePathReference,
     private itemValue: T,
+    private updatable: boolean,
     itemKey: unknown,
     private env: TemplateReferenceEnvironment
   ) {
+    if (updatable) {
+      this.tag = createTag();
+    }
+
     if (DEBUG) {
       env.setTemplatePathDebugContext(this, debugToString!(itemKey), parentReference);
     }
   }
 
+  isConst() {
+    return !this.updatable;
+  }
+
   value() {
+    if (this.updatable === true) {
+      consumeTag(this.tag!);
+    }
+
     return this.itemValue;
   }
 
   update(value: T) {
-    let { itemValue } = this;
-
-    // TODO: refactor this https://github.com/glimmerjs/glimmer-vm/issues/1101
-    if (value !== itemValue) {
-      dirtyTag(this.tag);
+    if (this.updatable === true && value !== this.itemValue) {
+      dirtyTag(this.tag!);
       this.itemValue = value;
     }
   }

@@ -13,22 +13,11 @@ import {
   LiveBlock,
   UpdatableBlock,
 } from '@glimmer/interfaces';
-import {
-  combine,
-  valueForTag,
-  updateTag,
-  validateTag,
-  createUpdatableTag,
-  Tag,
-  UpdatableTag,
-  Revision,
-  INITIAL,
-} from '@glimmer/validator';
 import { IterationItemReference, IterableReference, OpaqueIterationItem } from '@glimmer/reference';
+import { resetTracking } from '@glimmer/validator';
 import { expect, Option, Stack } from '@glimmer/util';
 import { SimpleComment } from '@simple-dom/interface';
 import { move as moveBounds, clear } from '../bounds';
-import { combineTagged } from '../utils/tags';
 import { UpdatingOpcode } from '../opcodes';
 import { InternalVM, VmInitCallback, JitVM } from './append';
 import { NewElementBuilder, LiveBlockList } from './element-builder';
@@ -52,17 +41,23 @@ export default class UpdatingVM {
 
     this.try(opcodes, handler);
 
-    while (true) {
-      if (frameStack.isEmpty()) break;
+    try {
+      while (true) {
+        if (frameStack.isEmpty()) break;
 
-      let opcode = this.frame.nextStatement();
+        let opcode = this.frame.nextStatement();
 
-      if (opcode === undefined) {
-        frameStack.pop();
-        continue;
+        if (opcode === undefined) {
+          frameStack.pop();
+          continue;
+        }
+
+        opcode.evaluate(this);
       }
+    } catch (e) {
+      resetTracking();
 
-      opcode.evaluate(this);
+      throw e;
     }
   }
 
@@ -124,8 +119,6 @@ export abstract class BlockOpcode extends UpdatingOpcode implements Bounds {
     this.bounds = bounds;
   }
 
-  abstract didInitializeChildren(): void;
-
   parentElement() {
     return this.bounds.parentElement();
   }
@@ -146,25 +139,7 @@ export abstract class BlockOpcode extends UpdatingOpcode implements Bounds {
 export class TryOpcode extends BlockOpcode implements ExceptionHandler {
   public type = 'try';
 
-  public tag: Tag;
-
-  private _tag: UpdatableTag;
-
   protected bounds!: UpdatableBlock; // Hides property on base class
-
-  constructor(
-    state: ResumableVMState<InternalVM>,
-    runtime: RuntimeContext,
-    bounds: UpdatableBlock,
-    children: UpdatingOpcode[]
-  ) {
-    super(state, runtime, bounds, children);
-    this.tag = this._tag = createUpdatableTag();
-  }
-
-  didInitializeChildren() {
-    updateTag(this._tag, combineTagged(this.children));
-  }
 
   evaluate(vm: UpdatingVM) {
     vm.try(this.children, this);
@@ -224,11 +199,8 @@ export class ListItemOpcode extends TryOpcode {
 
 export class ListBlockOpcode extends BlockOpcode {
   public type = 'list-block';
-  public tag: Tag;
   public children!: ListItemOpcode[];
 
-  private lastIterated: Revision = INITIAL;
-  private _tag: UpdatableTag;
   private opcodeMap = new Map<unknown, ListItemOpcode>();
   private marker: SimpleComment | null = null;
 
@@ -242,26 +214,14 @@ export class ListBlockOpcode extends BlockOpcode {
     private iterableRef: IterableReference
   ) {
     super(state, runtime, bounds, children);
-    let _tag = (this._tag = createUpdatableTag());
-    this.tag = combine([iterableRef.tag, _tag]);
   }
 
   initializeChild(opcode: ListItemOpcode) {
     this.opcodeMap.set(opcode.key, opcode);
   }
 
-  didInitializeChildren(listDidChange = true) {
-    this.lastIterated = valueForTag(this.tag);
-
-    if (listDidChange) {
-      updateTag(this._tag, combineTagged(this.children));
-    }
-  }
-
   evaluate(vm: UpdatingVM) {
-    let { iterableRef, lastIterated } = this;
-
-    if (!validateTag(iterableRef.tag, lastIterated)) {
+    if (this.iterableRef.isDone() === false) {
       let { bounds } = this;
       let { dom } = vm;
 

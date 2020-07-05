@@ -12,8 +12,7 @@ import {
   Environment,
 } from '@glimmer/interfaces';
 import { MINIMAL_CAPABILITIES } from './interfaces';
-import { VersionedPathReference } from '@glimmer/reference';
-import { Tag } from '@glimmer/validator';
+import { PathReference } from '@glimmer/reference';
 import { UNDEFINED_REFERENCE } from '../references';
 
 export class SimpleComponentManager implements ComponentManager {
@@ -30,18 +29,14 @@ export class SimpleComponentManager implements ComponentManager {
     _state: ComponentDefinitionState,
     _args: Option<VMArguments>,
     _dynamicScope: Option<DynamicScope>,
-    _caller: Option<VersionedPathReference<unknown>>,
+    _caller: Option<PathReference<unknown>>,
     _hasDefaultBlock: boolean
   ): ComponentInstanceState {
     throw new Error(`Unimplemented create in SimpleComponentManager`);
   }
 
-  getSelf(_state: ComponentInstanceState): VersionedPathReference {
+  getSelf(_state: ComponentInstanceState): PathReference {
     return UNDEFINED_REFERENCE;
-  }
-
-  getTag(_state: ComponentInstanceState): Tag {
-    throw new Error(`Unimplemented getTag in SimpleComponentManager`);
   }
 
   didRenderLayout(_state: ComponentInstanceState, _bounds: Bounds): void {
