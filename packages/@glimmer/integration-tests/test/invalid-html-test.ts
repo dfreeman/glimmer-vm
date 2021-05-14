@@ -54,10 +54,17 @@ class CompileErrorTests extends RenderTest {
   }
 
   @test
+  'A helpful error message is provided for unclosed nested tags'() {
+    this.assert.throws(() => {
+      preprocess('\n<p>\nSomething\n\n</div>', { meta: { moduleName: 'test-module' } });
+    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 5, 0));
+  }
+
+  @test
   'A helpful error message is provided for mismatched start/end tags'() {
     this.assert.throws(() => {
       preprocess('<div>\n<p>\nSomething\n\n</div>', { meta: { moduleName: 'test-module' } });
-    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 5, 0));
+    }, syntaxErrorFor('Opening tag <p> did not match corresponding closing tag </div> (on line 5)', '<p>', 'test-module', 2, 0));
   }
 
   @test
@@ -66,14 +73,14 @@ class CompileErrorTests extends RenderTest {
       preprocess('<div>\n<p>\n{{! some comment}}\n\n</div>', {
         meta: { moduleName: 'test-module' },
       });
-    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 5, 0));
+    }, syntaxErrorFor('Opening tag <p> did not match corresponding closing tag </div> (on line 5)', '<p>', 'test-module', 2, 0));
   }
 
   @test
   'error line numbers include mustache only lines'() {
     this.assert.throws(() => {
       preprocess('<div>\n<p>\n{{someProp}}\n\n</div>', { meta: { moduleName: 'test-module' } });
-    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 5, 0));
+    }, syntaxErrorFor('Opening tag <p> did not match corresponding closing tag </div> (on line 5)', '<p>', 'test-module', 2, 0));
   }
 
   @test
@@ -82,7 +89,7 @@ class CompileErrorTests extends RenderTest {
       preprocess('<div>\n<p>\n{{#some-comment}}\n{{/some-comment}}\n</div>', {
         meta: { moduleName: 'test-module' },
       });
-    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 5, 0));
+    }, syntaxErrorFor('Opening tag <p> did not match corresponding closing tag </div> (on line 5)', '<p>', 'test-module', 2, 0));
   }
 
   @test
@@ -91,16 +98,16 @@ class CompileErrorTests extends RenderTest {
       preprocess('<div>\n<p>\n{{someProp~}}\n\n</div>{{some-comment}}', {
         meta: { moduleName: 'test-module' },
       });
-    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 5, 0));
+    }, syntaxErrorFor('Opening tag <p> did not match corresponding closing tag </div> (on line 5)', '<p>', 'test-module', 2, 0));
   }
 
   @test
   'error line numbers include multiple mustache lines'() {
     this.assert.throws(() => {
-      preprocess('<div>\n<p>\n{{some-comment}}</div>{{some-comment}}', {
+      preprocess('<div>\n{{some-comment}}<p>{{some-comment}}\n</div>', {
         meta: { moduleName: 'test-module' },
       });
-    }, syntaxErrorFor('Closing tag </div> did not match last open tag <p> (on line 2)', '</div>', 'test-module', 3, 16));
+    }, syntaxErrorFor('Opening tag <p> did not match corresponding closing tag </div> (on line 3)', '<p>', 'test-module', 2, 16));
   }
 
   @test

@@ -1,14 +1,13 @@
 import { Option } from '@glimmer/interfaces';
-import { assertPresent, assign } from '@glimmer/util';
+import { assert, assertPresent, assign } from '@glimmer/util';
 import { parse, parseWithoutProcessing } from '@handlebars/parser';
 import { EntityParser } from 'simple-html-tokenizer';
 
 import print from '../generation/print';
 import { voidMap } from '../generation/printer';
-import { Tag } from '../parser';
+import { Element, Tag } from '../parser';
 import { Source } from '../source/source';
 import { SourceOffset, SourceSpan } from '../source/span';
-import { generateSyntaxError } from '../syntax-error';
 import traverse from '../traversal/traverse';
 import { NodeVisitor } from '../traversal/visitor';
 import Walker from '../traversal/walker';
@@ -135,15 +134,21 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
 
   finishEndTag(isVoid: boolean): void {
     let tag = this.finish(this.currentTag);
+    let element = this.findOpenElement(tag.name);
 
-    let element = this.elementStack.pop() as ASTv1.ElementNode;
-    let parent = this.currentElement();
+    if (!isVoid && voidMap[tag.name]) {
+      this.reportSyntaxError(
+        `<${tag.name}> elements do not need end tags. You should remove it`,
+        tag.loc
+      );
+    }
 
-    this.validateEndTag(tag, element, isVoid);
-
-    element.loc = element.loc.withEnd(this.offset());
-    parseElementBlockParams(element, this.reportSyntaxError);
-    appendChild(parent, element);
+    if (!element) {
+      this.reportSurplusClosingTag(tag, this.currentElement());
+    } else {
+      this.flushUnclosedElements(element, tag.loc.getStart());
+      this.finishElement(element, this.offset());
+    }
   }
 
   markTagAsSelfClosing(): void {
@@ -252,29 +257,6 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
     return b.concat(parts, this.source.spanFor(first.loc).extend(this.source.spanFor(last.loc)));
   }
 
-  validateEndTag(
-    tag: Tag<'StartTag' | 'EndTag'>,
-    element: ASTv1.ElementNode,
-    selfClosing: boolean
-  ): void {
-    let error;
-
-    if (voidMap[tag.name] && !selfClosing) {
-      // EngTag is also called by StartTag for void and self-closing tags (i.e.
-      // <input> or <br />, so we need to check for that here. Otherwise, we would
-      // throw an error for those cases.
-      error = `<${tag.name}> elements do not need end tags. You should remove it`;
-    } else if (element.tag === undefined) {
-      error = `Closing tag </${tag.name}> without an open tag`;
-    } else if (element.tag !== tag.name) {
-      error = `Closing tag </${tag.name}> did not match last open tag <${element.tag}> (on line ${element.loc.startPosition.line})`;
-    }
-
-    if (error) {
-      throw generateSyntaxError(error, tag.loc);
-    }
-  }
-
   assembleAttributeValue(
     parts: (ASTv1.MustacheStatement | ASTv1.TextNode)[],
     isQuoted: boolean,
@@ -308,6 +290,66 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
       }
     } else {
       return parts.length > 0 ? parts[0] : b.text({ chars: '', loc: span });
+    }
+  }
+
+  finishElement(element: ASTv1.ElementNode, offset: SourceOffset): void {
+    let parent = this.currentElement();
+
+    element.loc = element.loc.withEnd(offset);
+    parseElementBlockParams(element, this.reportSyntaxError);
+    appendChild(parent, element);
+  }
+
+  findOpenElement(tagName: string): Option<ASTv1.ElementNode> {
+    for (let i = this.elementStack.length; i > 0; i--) {
+      let candidate = this.elementStack[i - 1];
+      if (candidate.type === 'ElementNode' && candidate.tag === tagName) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  flushUnclosedElements(until: Element, offset = this.offset()): void {
+    let currentElement;
+    while ((currentElement = this.elementStack.pop()) !== until) {
+      // The Handlebars parser will have previously failed if there's an unmatched
+      // block, so anything dangling in the stack must be HTML content.
+      let htmlElement = currentElement as Exclude<Element, ASTv1.Template | ASTv1.Block>;
+
+      this.reportMissingClosingTag(htmlElement, until, offset);
+      this.finishElement(htmlElement, offset);
+    }
+
+    assert(currentElement === until, 'invalid stack state');
+  }
+
+  reportMissingClosingTag(
+    unclosedElement: ASTv1.ElementNode,
+    surroundingElement: Element,
+    offset: SourceOffset
+  ): void {
+    if (surroundingElement.type === 'ElementNode') {
+      let { line } = offset.toJSON();
+      this.reportSyntaxError(
+        `Opening tag <${unclosedElement.tag}> did not match corresponding closing tag </${surroundingElement.tag}> (on line ${line})`,
+        unclosedElement.loc
+      );
+    } else {
+      this.reportSyntaxError(`Unclosed element \`${unclosedElement.tag}\``, unclosedElement.loc);
+    }
+  }
+
+  reportSurplusClosingTag(tag: Tag<'StartTag' | 'EndTag'>, element: Option<Element>): void {
+    if (element?.type === 'ElementNode') {
+      let { line } = element.loc.startPosition;
+      this.reportSyntaxError(
+        `Closing tag </${tag.name}> did not match last open tag <${element.tag}> (on line ${line})`,
+        tag.loc
+      );
+    } else {
+      this.reportSyntaxError(`Closing tag </${tag.name}> without an open tag`, tag.loc);
     }
   }
 }

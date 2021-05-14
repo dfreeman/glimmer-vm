@@ -1,9 +1,8 @@
 import { Option, Recast } from '@glimmer/interfaces';
 import { TokenizerState } from 'simple-html-tokenizer';
 
-import { Parser, ParserNodeBuilder, SyntaxErrorReporter, Tag } from '../parser';
+import { Element, Parser, ParserNodeBuilder, SyntaxErrorReporter, Tag } from '../parser';
 import { NON_EXISTENT_LOCATION } from '../source/location';
-import { generateSyntaxError } from '../syntax-error';
 import { appendChild, isHBSLiteral, printLiteral } from '../utils';
 import * as ASTv1 from '../v1/api';
 import * as HBS from '../v1/handlebars-ast';
@@ -14,6 +13,7 @@ export abstract class HandlebarsNodeVisitors extends Parser {
   abstract appendToCommentData(s: string): void;
   abstract beginAttributeValue(quoted: boolean): void;
   abstract finishAttributeValue(): void;
+  abstract flushUnclosedElements(until: Element): void;
 
   private get isTopLevel() {
     return this.elementStack.length === 0;
@@ -55,12 +55,7 @@ export abstract class HandlebarsNodeVisitors extends Parser {
     }
 
     // Ensure that that the element stack is balanced properly.
-    let poppedNode = this.elementStack.pop();
-    if (poppedNode !== node) {
-      let elementNode = poppedNode as ASTv1.ElementNode;
-
-      throw generateSyntaxError(`Unclosed element \`${elementNode.tag}\``, elementNode.loc);
-    }
+    this.flushUnclosedElements(node);
 
     return node;
   }

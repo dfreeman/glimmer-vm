@@ -1,6 +1,7 @@
 import { SourceSpan } from './source/span';
 
 export interface GlimmerSyntaxError extends Error {
+  description: string;
   location: SourceSpan | null;
   code: string | null;
 }
@@ -16,6 +17,7 @@ export function generateSyntaxError(message: string, location: SourceSpan): Glim
     `${message}: ${quotedCode}(error occurred in '${module}' @ line ${line} : column ${column})`
   ) as GlimmerSyntaxError;
 
+  error.description = message;
   error.name = 'SyntaxError';
   error.location = location;
   error.code = code;
