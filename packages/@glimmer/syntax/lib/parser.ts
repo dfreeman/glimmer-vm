@@ -38,9 +38,17 @@ export interface Attribute {
   valueSpan: SourceSpan;
 }
 
+export interface ParserOptions {
+  errorRecovery?: boolean;
+  mode?: 'precompile' | 'codemod';
+  entityParser?: EntityParser;
+}
+
 export abstract class Parser {
   protected elementStack: Element[] = [];
   private lines: string[];
+  private errorRecovery: boolean;
+  private errors: GlimmerSyntaxError[] = [];
   readonly source: Source;
   public currentAttribute: Option<Attribute> = null;
   public currentNode: Option<
@@ -55,10 +63,14 @@ export abstract class Parser {
 
   constructor(
     source: Source,
-    entityParser = new EntityParser(namedCharRefs),
-    mode: 'precompile' | 'codemod' = 'precompile'
+    {
+      errorRecovery = false,
+      entityParser = new EntityParser(namedCharRefs),
+      mode = 'precompile',
+    }: ParserOptions = {}
   ) {
     this.source = source;
+    this.errorRecovery = errorRecovery;
     this.lines = source.source.split(/(?:\r\n?|\n)/g);
     this.tokenizer = new EventedTokenizer(this, entityParser, mode);
   }
@@ -154,7 +166,10 @@ export abstract class Parser {
   }
 
   acceptTemplate(node: HBS.Program): ASTv1.Template {
-    return this[node.type as 'Program'](node) as ASTv1.Template;
+    this.errors = [];
+    let template = this[node.type](node) as ASTv1.Template;
+    template.errors.push(...this.errors);
+    return template;
   }
 
   acceptNode(node: HBS.Program): ASTv1.Block | ASTv1.Template;

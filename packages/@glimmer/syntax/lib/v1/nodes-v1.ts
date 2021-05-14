@@ -2,6 +2,7 @@ import { Dict, Option, PresentArray, WireFormat } from '@glimmer/interfaces';
 
 import { SourceLocation } from '../source/location';
 import { SourceSpan } from '../source/span';
+import { GlimmerSyntaxError } from '../syntax-error';
 
 export interface Symbols {
   symbols: string[];
@@ -55,6 +56,7 @@ export type EntityEncodingState = 'transformed' | 'raw';
 
 export interface Template extends CommonProgram {
   type: 'Template';
+  errors: GlimmerSyntaxError[];
 }
 
 export type PossiblyDeprecatedBlock = Block | Template;

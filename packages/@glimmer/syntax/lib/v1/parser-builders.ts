@@ -4,6 +4,7 @@ import { assert } from '@glimmer/util';
 import { ParserNodeBuilder } from '../parser';
 import { SourceLocation } from '../source/location';
 import { SourceOffset, SourceSpan } from '../source/span';
+import { GlimmerSyntaxError } from '../syntax-error';
 import * as ASTv1 from './api';
 import { PathExpressionImplV1 } from './legacy-interop';
 
@@ -50,15 +51,18 @@ class Builders {
     body,
     blockParams,
     loc,
+    errors,
   }: {
     body?: ASTv1.Statement[];
     blockParams?: string[];
+    errors?: Array<GlimmerSyntaxError>;
     loc: SourceSpan;
   }): ASTv1.Template {
     return {
       type: 'Template',
       body: body || [],
       blockParams: blockParams || [],
+      errors: errors || [],
       loc,
     };
   }

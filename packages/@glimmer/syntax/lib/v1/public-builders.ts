@@ -454,6 +454,7 @@ function buildProgram(
     body: body || [],
     blockParams: blockParams || [],
     loc: buildLoc(loc || null),
+    errors: [],
   };
 }
 
@@ -482,6 +483,7 @@ function buildTemplate(
     body: body || [],
     blockParams: blockParams || [],
     loc: buildLoc(loc || null),
+    errors: [],
   };
 }
 

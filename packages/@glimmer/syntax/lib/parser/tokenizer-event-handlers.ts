@@ -345,6 +345,7 @@ export interface PrecompileOptions extends PreprocessOptions {
 
 export interface PreprocessOptions {
   strictMode?: boolean;
+  errorRecovery?: boolean;
   locals?: string[];
   meta?: {
     moduleName?: string;
@@ -433,7 +434,12 @@ export function preprocess(
     end: offsets.endPosition,
   };
 
-  let program = new TokenizerEventHandlers(source, entityParser, mode).acceptTemplate(ast);
+  let { errorRecovery } = options;
+  let program = new TokenizerEventHandlers(source, {
+    entityParser,
+    mode,
+    errorRecovery,
+  }).acceptTemplate(ast);
 
   if (options.strictMode) {
     program.blockParams = options.locals ?? [];
