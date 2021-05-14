@@ -1,7 +1,7 @@
 import { Option } from '@glimmer/interfaces';
 import { expect } from '@glimmer/util';
 
-import { generateSyntaxError } from './syntax-error';
+import { SyntaxErrorReporter } from './parser';
 import * as ASTv1 from './v1/api';
 import * as HBS from './v1/handlebars-ast';
 
@@ -14,12 +14,18 @@ let ID_INVERSE_PATTERN = /[!"#%-,\.\/;->@\[-\^`\{-~]/;
 // If it does, registers the block params with the program and
 // removes the corresponding attributes from the element.
 
-export function parseElementBlockParams(element: ASTv1.ElementNode): void {
-  let params = parseBlockParams(element);
+export function parseElementBlockParams(
+  element: ASTv1.ElementNode,
+  reportSyntaxError: SyntaxErrorReporter
+): void {
+  let params = parseBlockParams(element, reportSyntaxError);
   if (params) element.blockParams = params;
 }
 
-function parseBlockParams(element: ASTv1.ElementNode): Option<string[]> {
+function parseBlockParams(
+  element: ASTv1.ElementNode,
+  reportSyntaxError: SyntaxErrorReporter
+): Option<string[]> {
   let l = element.attributes.length;
   let attrNames = [];
 
@@ -30,7 +36,7 @@ function parseBlockParams(element: ASTv1.ElementNode): Option<string[]> {
   let asIndex = attrNames.indexOf('as');
 
   if (asIndex === -1 && attrNames.length > 0 && attrNames[attrNames.length - 1].charAt(0) === '|') {
-    throw generateSyntaxError(
+    reportSyntaxError(
       'Block parameters must be preceded by the `as` keyword, detected block parameters without `as`',
       element.loc
     );
@@ -43,10 +49,7 @@ function parseBlockParams(element: ASTv1.ElementNode): Option<string[]> {
       paramsString.charAt(paramsString.length - 1) !== '|' ||
       expect(paramsString.match(/\|/g), `block params must exist here`).length !== 2
     ) {
-      throw generateSyntaxError(
-        "Invalid block parameters syntax, '" + paramsString + "'",
-        element.loc
-      );
+      reportSyntaxError("Invalid block parameters syntax, '" + paramsString + "'", element.loc);
     }
 
     let params = [];
@@ -54,7 +57,7 @@ function parseBlockParams(element: ASTv1.ElementNode): Option<string[]> {
       let param = attrNames[i].replace(/\|/g, '');
       if (param !== '') {
         if (ID_INVERSE_PATTERN.test(param)) {
-          throw generateSyntaxError(
+          reportSyntaxError(
             "Invalid identifier for block parameters, '" + param + "'",
             element.loc
           );
@@ -64,7 +67,7 @@ function parseBlockParams(element: ASTv1.ElementNode): Option<string[]> {
     }
 
     if (params.length === 0) {
-      throw generateSyntaxError('Cannot use zero block parameters', element.loc);
+      reportSyntaxError('Cannot use zero block parameters', element.loc);
     }
 
     element.attributes = element.attributes.slice(0, asIndex);

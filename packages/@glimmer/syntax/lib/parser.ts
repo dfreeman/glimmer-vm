@@ -9,6 +9,7 @@ import {
 import { SourcePosition } from './source/location';
 import { Source } from './source/source';
 import { SourceOffset, SourceSpan } from './source/span';
+import { generateSyntaxError, GlimmerSyntaxError } from './syntax-error';
 import * as ASTv1 from './v1/api';
 import * as HBS from './v1/handlebars-ast';
 
@@ -43,6 +44,8 @@ export interface ParserOptions {
   mode?: 'precompile' | 'codemod';
   entityParser?: EntityParser;
 }
+
+export type SyntaxErrorReporter = (message: string, location?: SourceSpan) => void;
 
 export abstract class Parser {
   protected elementStack: Element[] = [];
@@ -129,7 +132,6 @@ export abstract class Parser {
   abstract beginComment(): void;
   abstract appendToCommentData(char: string): void;
   abstract finishComment(): void;
-  abstract reportSyntaxError(error: string): void;
 
   get currentAttr(): Attribute {
     return expect(this.currentAttribute, 'expected attribute');
@@ -164,6 +166,16 @@ export abstract class Parser {
     assert(node && node.type === 'TextNode', 'expected a text node');
     return node;
   }
+
+  reportSyntaxError: SyntaxErrorReporter = (message, location) => {
+    let error = generateSyntaxError(message, location ?? this.offset().collapsed());
+
+    if (this.errorRecovery) {
+      this.errors.push(error);
+    } else {
+      throw error;
+    }
+  };
 
   acceptTemplate(node: HBS.Program): ASTv1.Template {
     this.errors = [];

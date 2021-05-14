@@ -98,7 +98,7 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
       this.finishStartTag();
 
       if (tag.name === ':') {
-        throw generateSyntaxError(
+        this.reportSyntaxError(
           'Invalid named block named detected, you may have created a named block without a name, or you may have began your name with a number. Named blocks must have names that are at least one character long, and begin with a lower case letter',
           this.source.spanFor({
             start: this.currentTag.loc.toJSON(),
@@ -142,7 +142,7 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
     this.validateEndTag(tag, element, isVoid);
 
     element.loc = element.loc.withEnd(this.offset());
-    parseElementBlockParams(element);
+    parseElementBlockParams(element, this.reportSyntaxError);
     appendChild(parent, element);
   }
 
@@ -215,7 +215,7 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
     let tokenizerPos = this.offset();
 
     if (tag.type === 'EndTag') {
-      throw generateSyntaxError(
+      this.reportSyntaxError(
         `Invalid end tag: closing tag must not have attributes`,
         this.source.spanFor({ start: tag.loc.toJSON(), end: tokenizerPos.toJSON() })
       );
@@ -230,10 +230,6 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
     this.currentStartTag.attributes.push(attribute);
   }
 
-  reportSyntaxError(message: string): void {
-    throw generateSyntaxError(message, this.offset().collapsed());
-  }
-
   assembleConcatenatedValue(
     parts: (ASTv1.MustacheStatement | ASTv1.TextNode)[]
   ): ASTv1.ConcatStatement {
@@ -241,7 +237,7 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
       let part: ASTv1.BaseNode = parts[i];
 
       if (part.type !== 'MustacheStatement' && part.type !== 'TextNode') {
-        throw generateSyntaxError(
+        this.reportSyntaxError(
           'Unsupported node in quoted attribute value: ' + part['type'],
           part.loc
         );
@@ -297,12 +293,17 @@ export class TokenizerEventHandlers extends HandlebarsNodeVisitors {
         ) {
           return parts[0];
         } else {
-          throw generateSyntaxError(
+          this.reportSyntaxError(
             `An unquoted attribute value must be a string or a mustache, ` +
               `preceded by whitespace or a '=' character, and ` +
               `followed by whitespace, a '>' character, or '/>'`,
             span
           );
+
+          // If we reach this point, error-recovery is enabled. A mashed-up unquoted attribute
+          // value has no "right" meaning, but our best approximation is likely to treat it as
+          // an attempt at unquoted concatenation.
+          return this.assembleConcatenatedValue(parts);
         }
       }
     } else {
